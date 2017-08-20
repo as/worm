@@ -6,16 +6,9 @@ import (
 	"github.com/as/event"
 )
 
-// Coalescer is a WORM logger that coalesces logs written to
-// it until the deadband expires. When the deadband expires,
-// coalesced logs are flushed to the underlying logger during
+// Coalescer coalesces logs written to it until the deadband expires. After
+// expiration, the coalesced log is flushed to the underlying logger upon
 // the next call to Write().
-//
-// When a log is written to the underlying WORM, the
-// deadband period is reset to its original value given
-// to NewCoalescer.
-//
-//
 type Coalescer struct {
 	Logger
 
