@@ -1,11 +1,11 @@
 # WORM
 
-    Package worm provides Write-Once Read-Many (WORM) log storage semantics for
-    ordered read access and append only write access to log records. It also
-    provides a coalescer for compacting them.
+Package worm provides Write-Once Read-Many (WORM) log storage semantics for
+ordered read access and append only write access to log records. It also
+provides a coalescer for compacting them.
 
-    A log is an record of data defined in github.com/as/event that
-    implements the event.Record interface
+A `log` is an record of data defined in `github.com/as/event` that
+implements the `event.Record` interface
 
 # TYPES
 
