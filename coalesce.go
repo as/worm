@@ -2,7 +2,6 @@ package worm
 
 import (
 	"time"
-
 	"github.com/as/event"
 )
 
@@ -17,18 +16,21 @@ type Coalescer struct {
 	// period during which coalesced writes can be
 	// buffered without flush to the underlying logger
 	deadband time.Duration
-
+	flushc chan chan error
+	writec chan event.Record
 	timer *time.Timer
 }
 
 // NewCoalescer wraps the given logger and returns a coalescer
 func NewCoalescer(lg Logger, deadband time.Duration) *Coalescer {
-	return &Coalescer{
+	c := &Coalescer{
 		Logger:   lg,
 		last:     nil,
 		deadband: deadband,
-		timer:    time.NewTimer(deadband),
+		timer: time.NewTimer(deadband),
 	}
+	c.run()
+	return c
 }
 
 // ReadAt reads and returns log record n
@@ -36,38 +38,80 @@ func (l *Coalescer) ReadAt(n int64) (event.Record, error) {
 	return l.Logger.ReadAt(n)
 }
 
-// Write writes v to the tail of the log
-func (l *Coalescer) Write(v event.Record) (err error) {
-	if l.last == nil {
-		l.last = v
-		return nil
+func (l *Coalescer) combine(v event.Record) bool{
+	next := l.last.Coalesce(v)
+	// log.Printf("result \n\t\t%#v\n", next)
+	if next == nil{
+		return false
 	}
-	select {
-	case <-l.timer.C:
-		defer l.timer.Reset(l.deadband)
-		co := l.last.Coalesce(v)
-		l.Logger.Write(l.last)
-		if co {
-			l.last = nil
-		} else {
-			l.last = v
+	l.last=next
+	return true
+}
+
+func (l *Coalescer) run(){
+	l.flushc = make(chan chan error)
+	l.writec = make(chan event.Record)
+	l.reclock()
+	go func(){
+	for{
+		select{
+		case <- l.timer.C:
+			// deadline expired, flush what we have now
+			l.flush()
+			l.reclock()
+		case v := <- l.writec:
+			if l.last == nil{
+				// keep going
+				l.last = v
+				continue
+			}
+			fused := l.combine(v)
+			if !fused{
+				l.flush()
+				l.last = v
+			}
+			l.reclock() // deadline extended 
+		case donec := <- l.flushc:
+			// the user did this with a public function
+			l.flush()
+			l.reclock()
+			donec <- nil
 		}
-		return nil
-	default:
-		if l.last.Coalesce(v) {
+	}
+	}()
+}
+
+func (l *Coalescer) reclock(){
 			if !l.timer.Stop() {
 				<-l.timer.C
 			}
 			l.timer.Reset(l.deadband)
-			return nil
-		}
-		l.Logger.Write(l.last)
-		l.last = v
-		return nil
-	}
+}
+
+// Write writes v to the tail of the log
+func (l *Coalescer) Write(v event.Record) (err error) {
+	l.writec <- v
+	return nil 
 }
 
 // Flush flushes the last unwritten log to the underlying logger
-func (l *Coalescer) Flush() error {
-	return l.Logger.Write(l.last)
+func (l *Coalescer) Flush() error{
+	donec := make(chan error)
+	l.flushc <- donec
+	return <- donec
+}
+func (l *Coalescer) flush() error {
+	if l.last == nil{
+		return nil
+	}
+	l.Logger.Write(l.last)
+	switch e := l.last.(type){
+	case *event.Write:
+		if e.Residue != nil{
+			l.last = e.Residue
+			l.flush()
+		}
+	}
+	l.last = nil
+	return nil
 }
