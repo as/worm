@@ -76,6 +76,7 @@ func (l *Coalescer) run(){
 			l.flush()
 			l.reclock()
 			donec <- nil
+			return
 		}
 	}
 	}()
